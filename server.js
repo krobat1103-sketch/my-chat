@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 const ADMIN_NICK = "크로바츠입니다";     // 보호되는 닉네임
-const ADMIN_PASSWORD = "여기에_넣어";   // 너가 원하는 비밀번호로 바꿔라
+const ADMIN_PASSWORD = "khjs0070@@";   // 너가 원하는 비밀번호로 바꿔라
 const MAX_HISTORY = 1000;
 
 let rooms = [];
