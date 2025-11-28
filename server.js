@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const ADMIN_NAME = "크로바츠";
+const ADMIN_NAME = "크로바츠입니다";
 const MAX_HISTORY = 1000;
 
 let rooms = [];
