@@ -1,35 +1,44 @@
+새로운 메시지를 확인하려면 새로고침해주세여
+<div>개발&운영:크로바츠</div>
 
-개발&운영:크로바츠(YT)
-상대방이 보낸 메시지를 확인하려면 새로고침해주새요
 
 
 <!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<title>Chat Site (Auto Rejoin)</title>
+<title>Chat Site (Full)</title>
 <script src="/socket.io/socket.io.js"></script>
 <style>
+  body { font-family: Arial, sans-serif; padding: 12px; }
   #messages img { max-width: 200px; display:block; margin:5px 0; }
   #messages video { max-width: 320px; display:block; margin:5px 0; }
+  #roomUsers { margin-top:8px; }
+  .userItem { display:flex; gap:6px; align-items:center; }
+  .adminBtn { background:#e33; color:white; border:none; padding:2px 6px; border-radius:4px; cursor:pointer; }
+  .ownerBtn { background:#36a; color:white; border:none; padding:2px 6px; border-radius:4px; cursor:pointer; }
 </style>
 </head>
 <body>
 <h1>Chat</h1>
-
 <div>
   <label>닉네임: <input id="nickname" placeholder="닉네임"></label>
   <button id="saveNick">저장</button>
   <button id="changeNick">변경</button>
+  <span id="adminBadge" style="margin-left:12px;color:green;font-weight:bold;display:none;">관리자</span>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded',()=>{
   const s=localStorage.getItem('nickname');
   if(s) document.getElementById('nickname').value=s;
+  const adminName = "크로바츠입니다";
+  if(s === adminName) document.getElementById('adminBadge').style.display = 'inline';
 });
 document.getElementById('saveNick').addEventListener('click',()=>{
   localStorage.setItem('nickname',document.getElementById('nickname').value);
+  const s = document.getElementById('nickname').value;
+  if(s === "크로바츠") document.getElementById('adminBadge').style.display = 'inline';
   alert('닉네임 저장됨');
 });
 document.getElementById('changeNick').addEventListener('click',()=>{
@@ -37,6 +46,8 @@ document.getElementById('changeNick').addEventListener('click',()=>{
   if(n!==null){
     document.getElementById('nickname').value = n;
     localStorage.setItem('nickname', n);
+    if(n === "크로바츠") document.getElementById('adminBadge').style.display = 'inline';
+    else document.getElementById('adminBadge').style.display = 'none';
     alert('닉네임 변경됨');
   }
 });
@@ -55,25 +66,40 @@ document.getElementById('changeNick').addEventListener('click',()=>{
 <hr>
 <div id="chat" style="display:none;">
   <h3 id="roomTitle"></h3>
-  <div id="messages" style="height:300px;overflow:auto;border:1px solid #aaa;padding:6px;"></div>
-  <input id="msgInput" placeholder="메시지를 입력">
-  <button id="sendBtn">전송</button>
-  <br><br>
-  <input type="file" id="fileInput"><button id="uploadBtn">업로드</button>
-  <br><small>새로고침해도 자동으로 재입장됩니다 (비밀번호 있는 방은 재입장 시 비밀번호 입력해야 할 수 있음)</small>
-  <br><button id="leaveBtn">방 나가기</button>
+  <div style="display:flex;gap:12px;">
+    <div style="flex:1;">
+      <div id="messages" style="height:300px;overflow:auto;border:1px solid #aaa;padding:6px;"></div>
+      <input id="msgInput" placeholder="메시지를 입력">
+      <button id="sendBtn">전송</button>
+      <br><br>
+      <input type="file" id="fileInput"><button id="uploadBtn">업로드</button>
+      <br><small>새로고침해도 자동으로 재입장됩니다 (비밀번호 있는 방은 재입장 시 비밀번호 입력해야 할 수 있음)</small>
+      <br><button id="leaveBtn">방 나가기</button>
+    </div>
+    <div style="width:260px;">
+      <h4>접속자</h4>
+      <div id="roomUsers"></div>
+      <h4>방 정보</h4>
+      <div id="roomInfo"></div>
+      <h4>밴 목록 (관리자용)</h4>
+      <div id="banList"></div>
+    </div>
+  </div>
 </div>
 
 <script>
 const socket = io();
 let currentRoomId = null;
+const ADMIN_NAME = "크로바츠";
 
 function renderRooms(rooms){
   const list = document.getElementById('roomList');
   list.innerHTML = '';
   rooms.forEach(r=>{
     const li = document.createElement('li');
-    li.innerHTML = `${r.name} ${r.hasPassword ? '(비번)' : ''} <button onclick="promptJoin('${r.id}')">입장</button>`;
+    li.innerHTML = `<strong>${r.name}</strong> ${r.hasPassword ? '(비번)' : ''} by ${r.owner} 
+      <button onclick="promptJoin('${r.id}')">입장</button>
+      ${localStorage.getItem('nickname') === r.owner ? `<button class="ownerBtn" onclick="deleteRoom('${r.id}')">삭제</button>` : ''}`;
     list.appendChild(li);
   });
 }
@@ -84,10 +110,12 @@ document.getElementById('btnSearch').addEventListener('click',()=>{
   socket.emit('searchRooms', document.getElementById('search').value);
 });
 document.getElementById('createRoom').addEventListener('click',()=>{
+  const nick = localStorage.getItem('nickname') || document.getElementById('nickname').value;
   socket.emit('createRoom', {
     roomName: document.getElementById('newRoomName').value,
     hasPassword: document.getElementById('usePassword').checked,
-    password: document.getElementById('roomPassword').value
+    password: document.getElementById('roomPassword').value,
+    nickname: nick
   });
 });
 
@@ -105,7 +133,6 @@ function joinRoom(roomId, nickname, password){
 // handle join results
 socket.on('joinFailed', (msg) => {
   alert(msg);
-  // clear saved room if join failed due to password change etc
   const saved = localStorage.getItem('currentRoom');
   if(saved) localStorage.removeItem('currentRoom');
 });
@@ -115,6 +142,8 @@ socket.on('joinSuccess', (roomId) => {
   document.getElementById('chat').style.display = 'block';
   document.getElementById('roomTitle').textContent = '방: ' + roomId;
   localStorage.setItem('currentRoom', roomId);
+  socket.emit('requestRoomUsers', roomId);
+  document.getElementById('roomInfo').textContent = '';
 });
 
 // receive history after join
@@ -127,6 +156,35 @@ socket.on('chatHistory', (history) => {
 
 socket.on('systemMessage', (txt) => {
   appendSystem(txt);
+});
+
+socket.on('roomUsers', (users) => {
+  const container = document.getElementById('roomUsers');
+  container.innerHTML = '';
+  users.forEach(u=>{
+    const div = document.createElement('div');
+    div.className = 'userItem';
+    div.textContent = u;
+    // show admin ban button if i'm admin and u is not admin
+    const myNick = localStorage.getItem('nickname');
+    if(myNick === ADMIN_NAME && u !== ADMIN_NAME){
+      const b = document.createElement('button');
+      b.className = 'adminBtn';
+      b.textContent = '밴';
+      b.onclick = ()=> {
+        if(confirm(`${u}님을 밴하시겠습니까?`)){
+          socket.emit('banUser', { targetNick: u, adminNick: myNick });
+        }
+      };
+      div.appendChild(b);
+    }
+    container.appendChild(div);
+  });
+});
+
+socket.on('banList', (list) => {
+  const c = document.getElementById('banList');
+  c.innerHTML = list.map(x=>`<div>${x}</div>`).join('');
 });
 
 socket.on('newMessage', (item) => {
@@ -155,7 +213,6 @@ function appendMessage(item){
     } else if(m.mime && m.mime.startsWith('video')){
       div.innerHTML = `${t} ${item.nickname}: <br><video src="${m.url}" controls style="max-width:320px;"></video> <a href="${m.url}" download>다운</a>`;
     } else if(typeof m === 'string'){
-      // legacy: if message is a string URL
       div.innerHTML = `${t} ${item.nickname}: <a href="${m}" download>파일 다운로드</a>`;
     } else {
       div.textContent = `${t} ${item.nickname}: [파일]`;
@@ -200,17 +257,34 @@ document.getElementById('leaveBtn').addEventListener('click',()=>{
   document.getElementById('chat').style.display = 'none';
 });
 
-// auto rejoin on load if possible
+function deleteRoom(roomId){
+  const nick = localStorage.getItem('nickname');
+  if(!nick) return alert('닉네임 필요');
+  if(confirm('정말 이 방을 삭제하시겠습니까?')){
+    socket.emit('deleteRoom', { roomId, nickname: nick });
+  }
+}
+
 window.addEventListener('load', ()=>{
   const savedRoom = localStorage.getItem('currentRoom');
   const savedNick = localStorage.getItem('nickname');
   if(savedRoom && savedNick){
-    // try to join; if room requires password, user will be prompted
-    // attempt without password first
     joinRoom(savedRoom, savedNick, null);
-    // if join fails due to password, server will emit joinFailed and we alert and clear saved room
   }
 });
+
+socket.on('banned', (msg) => {
+  alert(msg || '밴되었습니다.');
+  localStorage.removeItem('currentRoom');
+  localStorage.removeItem('nickname');
+  window.location.reload();
+});
+
+function promptUnban(target){
+  const myNick = localStorage.getItem('nickname');
+  if(myNick !== ADMIN_NAME) return alert('관리자만 사용 가능');
+  socket.emit('unbanUser', { targetNick: target, adminNick: myNick });
+}
 </script>
 </body>
 </html>
