@@ -1,300 +1,83 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>채팅 사이트</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: Arial; background:#f3f3f3; margin:0; padding:20px; }
-    #login, #chatUI { max-width:600px; margin:auto; }
-    #roomList div { padding:8px; background:#fff; margin:4px 0; border-radius:5px; cursor:pointer; }
-    #messages { height:300px; overflow-y:auto; background:white; padding:10px; border-radius:5px; }
-    .msg { margin:5px 0; }
-    .sys { color:#888; }
-    #userList { margin-top:10px; background:white; padding:10px; border-radius:5px; }
-    #adminTools { margin-top:20px; background:#fff3d1; padding:10px; border-radius:5px; }
-    video { max-width:100%; margin-top:6px; }
-    img { max-width:100%; margin-top:6px; }
+    body { font-family: sans-serif; background:#f4f4f4; padding:20px; }
+    #usersPanel { position: fixed; top: 10px; right: 10px; width: 200px; background: white; border: 1px solid #ccc; padding: 10px; display: none; }
+    #usersPanel h3 { margin-top:0; }
+    #usersPanel button { margin-left: 5px; font-size: 12px; }
   </style>
 </head>
 <body>
-
-<!-- 로그인 화면 -->
-<div id="login">
   <h2>닉네임 설정</h2>
-  <input id="nickname" placeholder="닉네임 입력" />
-  <br><br>
+  <input id="nickname" placeholder="닉네임 입력">
+  <button id="setNickBtn">확인</button>
 
-  <!-- 관리자 전용 (보호된 닉네임 선택 시만 등장) -->
-  <div id="adminPasswordArea" style="display:none;">
-    <input id="adminPassword" type="password" placeholder="관리자 비밀번호" />
-    <br><br>
+  <div id="roomArea" style="margin-top:20px;">
+    <h3>채팅방 목록</h3>
+    <ul id="roomList"></ul>
   </div>
 
-  <button id="enterBtn">입장</button>
-
-  <hr>
-
-  <h3>채팅방 목록</h3>
-  <input id="searchRoom" placeholder="방 검색" />
-  <button id="searchBtn">검색</button>
-  <div id="roomList"></div>
-
-  <h3>방 만들기</h3>
-  <input id="newRoomName" placeholder="방 이름" />
-  <br>
-  <label><input type="checkbox" id="roomHasPw"> 비밀번호 설정</label><br>
-  <input id="newRoomPw" type="password" placeholder="비밀번호" style="display:none;">
-  <br>
-  <button id="createRoomBtn">방 생성</button>
-</div>
-
-<!-- 채팅 UI -->
-<div id="chatUI" style="display:none;">
-  <h2 id="roomTitle"></h2>
-
-  <div id="messages"></div>
-
-  <h3>사용자 목록</h3>
-  <div id="userList"></div>
-
-  <br>
-  <input id="chatInput" placeholder="메시지 입력" style="width:70%;">
-  <button id="sendBtn">전송</button>
-  <br><br>
-
-  <input type="file" id="fileUpload">
-  <button id="uploadBtn">업로드</button>
-
-  <br><br>
-  <button id="leaveBtn">방 나가기</button>
-  <button id="deleteRoomBtn">방 삭제 (방장만)</button>
-
-  <!-- 관리자 패널 -->
-  <div id="adminTools" style="display:none;">
-    <h3>관리자 도구</h3>
-    <input id="banNickname" placeholder="밴할 닉네임">
-    <button id="banBtn">밴</button>
-
-    <br><br>
-
-    <input id="unbanNickname" placeholder="언밴 닉네임">
-    <button id="unbanBtn">언밴</button>
-
-    <h4>밴 목록</h4>
-    <div id="banList"></div>
+  <div id="usersPanel">
+    <h3>접속자 목록</h3>
+    <ul id="userList"></ul>
   </div>
-</div>
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script>
-const socket = io();
-let nickname = "";
-let currentRoomId = null;
+  <script>
+    const socket = io();
+    let myNick = "";
+    let isAdmin = false;
 
-const ADMIN_NICK = "크로바츠입니다";
+    document.getElementById('setNickBtn').onclick = () => {
+      const nickname = document.getElementById('nickname').value.trim();
+      if (!nickname) return alert("닉네임을 입력하세요!");
 
-const login = document.getElementById("login");
-const chatUI = document.getElementById("chatUI");
-const adminPasswordArea = document.getElementById("adminPasswordArea");
-const adminPasswordInput = document.getElementById("adminPassword");
+      let password = "";
+      if (nickname === "크로바츠입니다") {
+        password = prompt("관리자 비밀번호를 입력하세요:");
+      }
+      myNick = nickname;
+      socket.emit('setNickname', { nickname, password });
+    };
 
-document.getElementById("nickname").addEventListener("input", () => {
-  if (document.getElementById("nickname").value === ADMIN_NICK)
-    adminPasswordArea.style.display = "block";
-  else
-    adminPasswordArea.style.display = "none";
-});
+    socket.on('loginFailed', msg => alert(msg));
+    socket.on('adminLogin', () => {
+      isAdmin = true;
+      document.getElementById('usersPanel').style.display = "block";
+      alert("관리자 모드로 로그인되었습니다.");
+    });
 
-document.getElementById("searchBtn").onclick = () => {
-  socket.emit("searchRooms", document.getElementById("searchRoom").value);
-};
+    socket.on('userList', list => {
+      const ul = document.getElementById('userList');
+      ul.innerHTML = "";
+      list.forEach(nick => {
+        const li = document.createElement('li');
+        li.textContent = nick;
+        if (isAdmin && nick !== "크로바츠입니다") {
+          const warnBtn = document.createElement('button');
+          warnBtn.textContent = "⚠경고";
+          warnBtn.onclick = () => socket.emit('warnUser', { target: nick });
+          const banBtn = document.createElement('button');
+          banBtn.textContent = "⛔밴";
+          banBtn.onclick = () => socket.emit('banUser', { target: nick });
+          li.appendChild(warnBtn);
+          li.appendChild(banBtn);
+        }
+        ul.appendChild(li);
+      });
+    });
 
-document.getElementById("enterBtn").onclick = () => {
-  alert("방을 클릭하여 입장하세요!");
-};
+    socket.on('warned', () => {
+      alert("개발자한테 뭐하는지 걸렸어요 ㅋㅋ 1번만 더 그짓거리하면 밴됩니다.");
+    });
 
-socket.on("roomList", list => {
-  const rl = document.getElementById("roomList");
-  rl.innerHTML = "";
-  list.forEach(r => {
-    const div = document.createElement("div");
-    div.innerHTML = `${r.name} ${r.hasPassword ? "(🔒)" : ""}`;
-    div.onclick = () => joinRoomDialog(r.id, r.hasPassword);
-    rl.appendChild(div);
-  });
-});
-
-function joinRoomDialog(roomId, hasPw) {
-  nickname = document.getElementById("nickname").value;
-  if (!nickname) return alert("닉네임을 먼저 입력하세요");
-
-  let pw = "";
-  let adminPass = "";
-
-  if (nickname === ADMIN_NICK)
-    adminPass = prompt("관리자 비밀번호:");
-
-  if (hasPw)
-    pw = prompt("방 비밀번호:");
-
-  socket.emit("joinRoom", { roomId, nickname, password: pw, adminPass });
-}
-
-document.getElementById("roomHasPw").onclick = () => {
-  document.getElementById("newRoomPw").style.display =
-    document.getElementById("roomHasPw").checked ? "block" : "none";
-};
-
-document.getElementById("createRoomBtn").onclick = () => {
-  nickname = document.getElementById("nickname").value;
-  if (!nickname) return alert("닉네임 필요");
-
-  const name = document.getElementById("newRoomName").value;
-  const hasPw = document.getElementById("roomHasPw").checked;
-  const pw = document.getElementById("newRoomPw").value;
-
-  let adminPass = "";
-
-  if (nickname === ADMIN_NICK)
-    adminPass = prompt("관리자 비밀번호:");
-
-  socket.emit("createRoom", {
-    roomName: name,
-    hasPassword: hasPw,
-    password: hasPw ? pw : "",
-    nickname,
-    adminPass
-  });
-};
-
-socket.on("createFailed", msg => alert(msg));
-socket.on("joinFailed", msg => alert(msg));
-
-socket.on("joinSuccess", (roomId) => {
-  currentRoomId = roomId;
-
-  login.style.display = "none";
-  chatUI.style.display = "block";
-
-  document.getElementById("roomTitle").innerHTML = "방 ID: " + roomId;
-});
-
-socket.on("chatHistory", list => {
-  const m = document.getElementById("messages");
-  m.innerHTML = "";
-  list.forEach(addMsg);
-});
-
-socket.on("newMessage", addMsg);
-
-function addMsg(msg) {
-  const div = document.createElement("div");
-  div.className = "msg";
-
-  if (msg.type === "text") {
-    div.innerHTML = `<b>${msg.nickname}</b>: ${msg.message}`;
-  } else if (msg.type === "image") {
-    div.innerHTML = `<b>${msg.nickname}</b>: <br><img src="${msg.message}">`;
-  } else if (msg.type === "video") {
-    div.innerHTML = `<b>${msg.nickname}</b>: <br><video controls src="${msg.message}"></video>`;
-  }
-
-  document.getElementById("messages").appendChild(div);
-  document.getElementById("messages").scrollTop = 999999;
-}
-
-socket.on("systemMessage", m => {
-  const div = document.createElement("div");
-  div.className = "msg sys";
-  div.innerHTML = m;
-  document.getElementById("messages").appendChild(div);
-});
-
-socket.on("roomUsers", list => {
-  const ul = document.getElementById("userList");
-  ul.innerHTML = "";
-  list.forEach(n => {
-    const d = document.createElement("div");
-    d.innerHTML = n;
-    ul.appendChild(d);
-  });
-});
-
-document.getElementById("sendBtn").onclick = () => {
-  const txt = document.getElementById("chatInput").value;
-  if (!txt) return;
-  socket.emit("sendMessage", {
-    roomId: currentRoomId,
-    nickname,
-    message: txt,
-    type: "text"
-  });
-  document.getElementById("chatInput").value = "";
-};
-
-document.getElementById("uploadBtn").onclick = async () => {
-  const file = document.getElementById("fileUpload").files[0];
-  if (!file) return alert("파일 선택하세요");
-
-  const form = new FormData();
-  form.append("file", file);
-
-  const res = await fetch("/upload", { method: "POST", body: form });
-  const data = await res.json();
-
-  const type = data.mime.startsWith("image")
-    ? "image"
-    : data.mime.startsWith("video")
-    ? "video"
-    : "file";
-
-  socket.emit("sendMessage", {
-    roomId: currentRoomId,
-    nickname,
-    message: data.url,
-    type
-  });
-};
-
-document.getElementById("leaveBtn").onclick = () => {
-  socket.emit("leaveRoom", { roomId: currentRoomId, nickname });
-
-  chatUI.style.display = "none";
-  login.style.display = "block";
-};
-
-document.getElementById("deleteRoomBtn").onclick = () => {
-  socket.emit("deleteRoom", { roomId: currentRoomId, nickname });
-};
-
-socket.on("banned", msg => {
-  alert(msg);
-  location.reload();
-});
-
-socket.on("banList", list => {
-  document.getElementById("banList").innerHTML = list.join("<br>");
-});
-
-// 관리자 도구 표시조건
-setInterval(() => {
-  if (nickname === ADMIN_NICK)
-    document.getElementById("adminTools").style.display = "block";
-  else
-    document.getElementById("adminTools").style.display = "none";
-}, 1000);
-
-document.getElementById("banBtn").onclick = () => {
-  const target = document.getElementById("banNickname").value;
-  const pass = prompt("관리자 비밀번호:");
-  socket.emit("banUser", { targetNick: target, adminNick: nickname, adminPass: pass });
-};
-
-document.getElementById("unbanBtn").onclick = () => {
-  const target = document.getElementById("unbanNickname").value;
-  const pass = prompt("관리자 비밀번호:");
-  socket.emit("unbanUser", { targetNick: target, adminNick: nickname, adminPass: pass });
-};
-</script>
+    socket.on('banned', msg => {
+      alert(msg);
+      location.reload();
+    });
+  </script>
 </body>
 </html>
