@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 const ADMIN_NAME = "크로바츠입니다";
-const ADMIN_PASSWORD = "YOUR_ADMIN_PASSWORD"; // 🔒 여기를 직접 수정해줘
+const ADMIN_PASSWORD = "khjs0070@@"; // 🔒 여기를 직접 수정해줘
 const MAX_HISTORY = 1000;
 
 let rooms = [];
