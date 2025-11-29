@@ -12,8 +12,27 @@ const io = new Server(server, { cors: { origin: "*" } });
 /* -----------------------------
     관리자 설정
 ------------------------------*/
-const ADMIN_NAME = "크로바츠";
-const ADMIN_PASSWORD = "ㅏㅗㅓㄴ0070@@";
+const ADMIN_NICK = "크로바츠입니다";
+const ADMIN_PASSWORD = "여기에_네가_정한_비밀번호";  // ← 이걸 안넣음 = 실패
+
+io.on("connection", socket => {
+
+  socket.on("adminLogin", data => {
+    if (data.nickname !== ADMIN_NICK) {
+      socket.emit("adminFailed");
+      return;
+    }
+
+    if (data.password !== ADMIN_PASSWORD) {
+      socket.emit("adminFailed");
+      return;
+    }
+
+    socket.isAdmin = true;  // ← 관리자 인증됨
+    socket.emit("adminSuccess");
+  });
+
+});
 
 /* -----------------------------
     데이터 저장
