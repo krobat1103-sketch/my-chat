@@ -13,26 +13,8 @@ const io = new Server(server, { cors: { origin: "*" } });
     관리자 설정
 ------------------------------*/
 const ADMIN_NICK = "크로바츠입니다";
-const ADMIN_PASSWORD = "여기에_네가_정한_비밀번호";  // ← 이걸 안넣음 = 실패
+const ADMIN_PASSWORD = "여기에_네가_정한_비밀번호";  
 
-io.on("connection", socket => {
-
-  socket.on("adminLogin", data => {
-    if (data.nickname !== ADMIN_NICK) {
-      socket.emit("adminFailed");
-      return;
-    }
-
-    if (data.password !== ADMIN_PASSWORD) {
-      socket.emit("adminFailed");
-      return;
-    }
-
-    socket.isAdmin = true;  // ← 관리자 인증됨
-    socket.emit("adminSuccess");
-  });
-
-});
 
 /* -----------------------------
     데이터 저장
@@ -41,11 +23,12 @@ let rooms = [];
 let chatHistory = {};
 let nickToSocket = new Map();
 
-// IP 밴
+// IP 밴 목록
 let bannedIPs = new Set();
 
+
 /* -----------------------------
-    유저 실제 IP 얻기
+    실제 IP 얻기
 ------------------------------*/
 function getClientIP(socket) {
   return (
@@ -55,6 +38,16 @@ function getClientIP(socket) {
     "unknown"
   );
 }
+
+
+/* -----------------------------
+    닉네임 등록(공통 함수)
+------------------------------*/
+function registerNickname(socket, nickname) {
+  socket.nickname = nickname;
+  nickToSocket.set(nickname, socket.id);
+}
+
 
 /* -----------------------------
     파일 업로드 설정
@@ -72,15 +65,9 @@ const upload = multer({
   })
 });
 
-/* -----------------------------
-    Static
-------------------------------*/
 app.use("/uploads", express.static("uploads"));
 app.use(express.static("public"));
 
-/* -----------------------------
-    Upload API
-------------------------------*/
 app.post("/upload", upload.single("file"), (req, res) => {
   res.json({
     url: "/uploads/" + req.file.filename,
@@ -88,8 +75,9 @@ app.post("/upload", upload.single("file"), (req, res) => {
   });
 });
 
+
 /* -----------------------------
-    방 생성 함수
+    방 관련
 ------------------------------*/
 function createRoom(name, hasPassword, password, owner) {
   const room = {
@@ -116,13 +104,15 @@ function broadcastRoomList() {
   io.emit("roomList", list);
 }
 
+
 /* -----------------------------
     소켓 연결
 ------------------------------*/
 io.on("connection", socket => {
+
   const userIP = getClientIP(socket);
 
-  // IP BAN 체크
+  // IP BAN 차단
   if (bannedIPs.has(userIP)) {
     socket.emit("banned", "IP가 관리자에 의해 밴되었습니다.");
     return socket.disconnect(true);
@@ -131,28 +121,32 @@ io.on("connection", socket => {
   broadcastRoomList();
 
   /* -----------------------------
-        관리자 로그인 처리
+        관리자 로그인
   ------------------------------*/
   socket.on("adminLogin", ({ nickname, password }) => {
-    if (nickname === ADMIN_NAME && password === ADMIN_PASSWORD) {
+    if (nickname === ADMIN_NICK && password === ADMIN_PASSWORD) {
       socket.isAdmin = true;
+
+      // 관리자도 유저 목록에 표시되도록 닉 등록
+      registerNickname(socket, ADMIN_NICK);
+
       socket.emit("adminSuccess");
     } else {
       socket.emit("adminFailed");
     }
   });
 
+
   /* -----------------------------
-        전체 접속자 목록 요청
+        관리자: 전체 유저 리스트 요청
   ------------------------------*/
   socket.on("requestUserList", () => {
     if (!socket.isAdmin) return;
-    const list = [];
-    for (let [nick, sid] of nickToSocket.entries()) {
-      list.push(nick);
-    }
+
+    const list = Array.from(nickToSocket.keys());
     socket.emit("allUsers", list);
   });
+
 
   /* -----------------------------
         방 생성
@@ -163,22 +157,25 @@ io.on("connection", socket => {
       return socket.emit("createFailed", "이미 사용 중인 닉네임입니다.");
     }
 
-    socket.nickname = nickname;
-    nickToSocket.set(nickname, socket.id);
+    registerNickname(socket, nickname);
 
     const room = createRoom(roomName, hasPassword, password, nickname);
     room.users.push(nickname);
 
     socket.join(room.id);
+
     socket.emit("joinSuccess", room.id);
     socket.emit("chatHistory", chatHistory[room.id]);
+
     io.to(room.id).emit("roomUsers", room.users);
   });
+
 
   /* -----------------------------
         방 입장
   ------------------------------*/
   socket.on("joinRoom", ({ roomId, nickname, password }) => {
+
     const room = rooms.find(r => r.id === roomId);
     if (!room) return socket.emit("joinFailed", "방이 존재하지 않습니다.");
 
@@ -190,12 +187,12 @@ io.on("connection", socket => {
       return socket.emit("joinFailed", "이미 사용 중인 닉네임입니다.");
     }
 
-    socket.nickname = nickname;
-    nickToSocket.set(nickname, socket.id);
+    registerNickname(socket, nickname);
 
     if (!room.users.includes(nickname)) room.users.push(nickname);
 
     socket.join(roomId);
+
     socket.emit("joinSuccess", roomId);
     socket.emit("chatHistory", chatHistory[roomId]);
 
@@ -203,22 +200,28 @@ io.on("connection", socket => {
     io.to(roomId).emit("systemMessage", `${nickname}님이 입장했습니다.`);
   });
 
+
+
   /* -----------------------------
-        메시지
+        메시지 전송
   ------------------------------*/
   socket.on("sendMessage", ({ roomId, nickname, message, type }) => {
+
     const item = {
       nickname,
       type: type || "text",
       message,
       time: Date.now()
     };
+
     chatHistory[roomId].push(item);
     io.to(roomId).emit("newMessage", item);
   });
 
+
+
   /* -----------------------------
-        관리자 전용 IP 밴
+        관리자 전용 : IP 밴
   ------------------------------*/
   socket.on("banIP", ({ targetNick }) => {
     if (!socket.isAdmin) return;
@@ -239,11 +242,15 @@ io.on("connection", socket => {
     io.emit("banList", Array.from(bannedIPs));
   });
 
+
+
   /* -----------------------------
         연결 종료
   ------------------------------*/
   socket.on("disconnect", () => {
+
     const nick = socket.nickname;
+
     if (nick) {
       nickToSocket.delete(nick);
 
@@ -259,6 +266,7 @@ io.on("connection", socket => {
     }
   });
 });
+
 
 /* -----------------------------
     서버 시작
