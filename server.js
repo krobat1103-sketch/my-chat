@@ -13,7 +13,7 @@ const io = new Server(server, { cors: { origin: "*" } });
     관리자 설정
 ------------------------------*/
 const ADMIN_NAME = "크로바츠";
-const ADMIN_PASSWORD = "여기에_너가_원하는_비밀번호";
+const ADMIN_PASSWORD = "ㅏㅗㅓㄴ0070@@";
 
 /* -----------------------------
     데이터 저장
