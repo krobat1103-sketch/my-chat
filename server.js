@@ -1,290 +1,112 @@
-//-----------------------------------------------------------
-// Modern Chat Server (Full Feature)
-//-----------------------------------------------------------
+
 const express = require("express");
+const helmet = require("helmet");
 const http = require("http");
 const { Server } = require("socket.io");
-const multer = require("multer");
-const mime = require("mime-types");
-const fs = require("fs");
-const helmet = require("helmet");
+const path = require("path");
+
+const ADMIN_NAME = "크로바츠입니다";
+const ADMIN_PASSWORD = "myadminpw";
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
-
-// 보안 설정
-app.disable("x-powered-by");
 app.use(helmet());
+app.use(express.static(path.join(__dirname, "public")));
 
-// 관리자 정보
-const ADMIN_NAME = "크로바츠";
-const ADMIN_PASSWORD = "여기에_관리자비번_넣기";
+const server = http.createServer(app);
+const io = new Server(server);
 
-// 데이터
-let rooms = [];
-let chatHistory = {};
-let nickToSocket = new Map();
-let bannedIPs = new Set();
+let rooms = {};
+let bannedIPs = [];
 
-//-----------------------------------------------------------
-// Helper: 유저 IP 가져오기
-//-----------------------------------------------------------
-function getClientIP(socket) {
-  return (
-    socket.handshake.headers["x-forwarded-for"] ||
-    socket.handshake.address ||
-    socket.request.connection.remoteAddress ||
-    "unknown"
-  );
+function clean(text){
+  return text.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/&/g,"&amp;").replace(/"/g,"&#34;");
 }
 
-//-----------------------------------------------------------
-// XSS 방지용 간단한 Sanitizer
-//-----------------------------------------------------------
-function clean(str) {
-  if (!str) return "";
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
+io.on("connection", (socket)=>{
+  const ip = socket.handshake.address;
 
-//-----------------------------------------------------------
-// 파일 업로드 설정
-//-----------------------------------------------------------
-if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, "uploads"),
-    filename: (req, file, cb) =>
-      cb(null, Date.now() + "." + (mime.extension(file.mimetype) || "bin")),
-  }),
-});
-
-// 업로드 API
-app.post("/upload", upload.single("file"), (req, res) => {
-  res.json({
-    url: "/uploads/" + req.file.filename,
-    mime: req.file.mimetype,
-  });
-});
-
-// Static 제공
-app.use("/uploads", express.static("uploads"));
-app.use(express.static("public"));
-
-//-----------------------------------------------------------
-// 방 생성
-//-----------------------------------------------------------
-function createRoom(name, hasPassword, password, owner) {
-  const id = Date.now().toString();
-
-  rooms.push({
-    id,
-    name: clean(name),
-    hasPassword,
-    password,
-    owner,
-    users: [],
-  });
-
-  chatHistory[id] = [];
-
-  broadcastRooms();
-
-  return id;
-}
-
-function broadcastRooms() {
-  io.emit(
-    "roomList",
-    rooms.map((r) => ({
-      id: r.id,
-      name: r.name,
-      owner: r.owner,
-      hasPassword: r.hasPassword,
-    }))
-  );
-}
-
-//-----------------------------------------------------------
-// Socket.io 연결
-//-----------------------------------------------------------
-io.on("connection", (socket) => {
-  const ip = getClientIP(socket);
-
-  // ───── IP 밴 차단 ─────
-  if (bannedIPs.has(ip)) {
-    socket.emit("banned", "IP가 차단됨.");
-    return socket.disconnect(true);
+  if(bannedIPs.includes(ip)){
+    socket.emit("banned","밴됨");
+    socket.disconnect();
+    return;
   }
 
-  broadcastRooms();
-
-  //---------------------------------------------------------
-  // 관리자 로그인
-  //---------------------------------------------------------
-  socket.on("adminLogin", ({ nickname, password }) => {
-    if (nickname !== ADMIN_NAME) return socket.emit("adminFailed");
-    if (password !== ADMIN_PASSWORD) return socket.emit("adminFailed");
-
-    socket.isAdmin = true;
-    socket.emit("adminSuccess");
-    socket.emit("banList", Array.from(bannedIPs));
+  socket.on("adminLogin", (data)=>{
+    if(data.nickname !== ADMIN_NAME) return;
+    if(data.password === ADMIN_PASSWORD){
+      socket.isAdmin = true;
+      socket.emit("adminSuccess");
+    }else socket.emit("adminFailed");
   });
 
-  //---------------------------------------------------------
-  // 방 생성
-  //---------------------------------------------------------
-  socket.on("createRoom", ({ roomName, hasPassword, password, nickname }) => {
-    nickname = clean(nickname);
-    roomName = clean(roomName);
-
-    if (!nickname) return;
-
-    // 닉 중복 검사
-    if (nickToSocket.has(nickname)) {
-      return socket.emit("createFailed", "이미 사용 중인 닉네임");
-    }
-
-    socket.nickname = nickname;
-    nickToSocket.set(nickname, socket.id);
-
-    const id = createRoom(roomName, hasPassword, password, nickname);
-    const room = rooms.find((r) => r.id === id);
-
-    room.users.push(nickname);
-    socket.join(id);
-
-    socket.emit("joinSuccess", id);
-    socket.emit("chatHistory", chatHistory[id]);
-
-    io.to(id).emit("roomUsers", room.users);
-  });
-
-  //---------------------------------------------------------
-  // 방 입장
-  //---------------------------------------------------------
-  socket.on("joinRoom", ({ roomId, nickname, password }) => {
-    nickname = clean(nickname);
-
-    const room = rooms.find((r) => r.id === roomId);
-    if (!room) return socket.emit("joinFailed", "방이 존재하지 않습니다.");
-
-    if (room.hasPassword && room.password !== password) {
-      return socket.emit("joinFailed", "비밀번호가 올바르지 않습니다.");
-    }
-
-    if (nickToSocket.has(nickname) && nickToSocket.get(nickname) !== socket.id) {
-      return socket.emit("joinFailed", "이미 사용 중인 닉네임입니다.");
-    }
-
-    socket.nickname = nickname;
-    nickToSocket.set(nickname, socket.id);
-
-    if (!room.users.includes(nickname)) room.users.push(nickname);
-
-    socket.join(roomId);
-    socket.emit("joinSuccess", roomId);
-    socket.emit("chatHistory", chatHistory[roomId]);
-
-    io.to(roomId).emit("roomUsers", room.users);
-    io.to(roomId).emit("systemMessage", `${nickname} 님이 입장했습니다.`);
-  });
-
-  //---------------------------------------------------------
-  // 메시지
-  //---------------------------------------------------------
-  socket.on("sendMessage", ({ roomId, nickname, message, type }) => {
-    if (!chatHistory[roomId]) return;
-
-    const item = {
-      nickname,
-      message: type === "text" ? clean(message) : message,
-      time: Date.now(),
-      type,
+  socket.on("createRoom",(d)=>{
+    const id = Date.now().toString();
+    rooms[id] = {
+      id,
+      name: clean(d.roomName),
+      owner: clean(d.nickname),
+      hasPassword: d.hasPassword,
+      password: d.password || "",
+      users: [],
+      chat:[]
     };
-
-    chatHistory[roomId].push(item);
-
-    io.to(roomId).emit("newMessage", item);
+    io.emit("roomList", Object.values(rooms));
   });
 
-  //---------------------------------------------------------
-  // 관리자 IP 밴
-  //---------------------------------------------------------
-  socket.on("banUser", ({ targetNick }) => {
-    if (!socket.isAdmin) return;
-
-    const sid = nickToSocket.get(targetNick);
-    if (!sid) return;
-
-    const t = io.sockets.sockets.get(sid);
-    if (!t) return;
-
-    const targetIP = getClientIP(t);
-    bannedIPs.add(targetIP);
-
-    t.emit("banned", "관리자에 의해 차단되었습니다.");
-    t.disconnect(true);
-
-    // 전체에게 갱신
-    io.emit("banList", Array.from(bannedIPs));
+  socket.on("searchRooms",(txt)=>{
+    txt = clean(txt);
+    const list = Object.values(rooms).filter(r=>r.name.includes(txt));
+    socket.emit("roomList", list);
   });
 
-  //---------------------------------------------------------
-  // 방 삭제
-  //---------------------------------------------------------
-  socket.on("deleteRoom", ({ roomId, nickname }) => {
-    const room = rooms.find((r) => r.id === roomId);
-    if (!room) return;
-    if (room.owner !== nickname) return;
-
-    rooms = rooms.filter((r) => r.id !== roomId);
-    delete chatHistory[roomId];
-
-    broadcastRooms();
+  socket.on("joinRoom",(d)=>{
+    const r = rooms[d.roomId];
+    if(!r) return socket.emit("joinFailed","존재하지 않는 방");
+    if(r.hasPassword && r.password !== d.password){
+      return socket.emit("joinFailed","비밀번호 틀림");
+    }
+    socket.join(r.id);
+    r.users.push(d.nickname);
+    socket.currentRoom = r.id;
+    socket.nickname = d.nickname;
+    socket.emit("joinSuccess", r.id);
+    socket.emit("chatHistory", r.chat);
+    io.to(r.id).emit("roomUsers", r.users);
   });
 
-  //---------------------------------------------------------
-  // 유저 나가기
-  //---------------------------------------------------------
-  socket.on("leaveRoom", ({ roomId, nickname }) => {
-    const room = rooms.find((r) => r.id === roomId);
-    if (!room) return;
-
-    room.users = room.users.filter((u) => u !== nickname);
-    socket.leave(roomId);
-
-    io.to(roomId).emit("roomUsers", room.users);
-    io.to(roomId).emit("systemMessage", `${nickname} 님이 나갔습니다.`);
+  socket.on("sendMessage",(d)=>{
+    const r = rooms[d.roomId];
+    if(!r) return;
+    const msg = {
+      time: Date.now(),
+      type: d.type,
+      nickname: clean(d.nickname),
+      message: clean(d.message)
+    };
+    r.chat.push(msg);
+    io.to(r.id).emit("newMessage", msg);
   });
 
-  //---------------------------------------------------------
-  // 접속 종료
-  //---------------------------------------------------------
-  socket.on("disconnect", () => {
-    const nick = socket.nickname;
-    if (!nick) return;
-
-    nickToSocket.delete(nick);
-
-    rooms.forEach((room) => {
-      if (room.users.includes(nick)) {
-        room.users = room.users.filter((u) => u !== nick);
-        io.to(room.id).emit("roomUsers", room.users);
-        io.to(room.id).emit("systemMessage", `${nick} 님이 나갔습니다.`);
-      }
-    });
-
-    broadcastRooms();
+  socket.on("banUser",(data)=>{
+    if(!socket.isAdmin) return;
+    const target = [...io.sockets.sockets.values()].find(s=>s.nickname === data.targetNick);
+    if(target){
+      bannedIPs.push(target.handshake.address);
+      target.emit("banned","관리자에 의해 밴됨");
+      target.disconnect();
+      io.emit("banList", bannedIPs);
+    }
   });
+
+  socket.on("disconnect", ()=>{
+    const r = rooms[socket.currentRoom];
+    if(r){
+      r.users = r.users.filter(u=>u!==socket.nickname);
+      io.to(r.id).emit("roomUsers", r.users);
+    }
+  });
+
+  io.emit("roomList", Object.values(rooms));
 });
 
-//-----------------------------------------------------------
-server.listen(process.env.PORT || 3000, () =>
-  console.log("SERVER RUNNING")
-);
+server.listen(3000, ()=> console.log("SERVER RUNNING on 3000"));
