@@ -1,244 +1,110 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8">
 <title>Modern Chat</title>
-<script src="/socket.io/socket.io.js"></script>
 <link rel="stylesheet" href="style.css">
-
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 0;
-    background: #f2f2f7;
-    font-family: Arial, sans-serif;
-    color: #333;
-  }
-
-  #layout {
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    height: 100vh;
-  }
-
-  /* ▒▒▒ 왼쪽 사이드 ▒▒▒ */
-  #sidebar {
-    background: #ffffff;
-    border-right: 1px solid #ddd;
-    padding: 20px;
-    overflow-y: auto;
-  }
-
-  #sidebar h2 {
-    margin-top: 0;
-    font-size: 22px;
-    color: #444;
-  }
-
-  input[type=text],
-  input[type=password],
-  input[type=search] {
-    width: 100%;
-    padding: 8px;
-    margin: 6px 0;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-  }
-
-  button {
-    padding: 7px 12px;
-    border: none;
-    background: #4b77ff;
-    color: #fff;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-top: 5px;
-  }
-
-  button:hover {
-    opacity: 0.9;
-  }
-
-  .roomItem {
-    padding: 10px;
-    background: #f7f7f9;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    margin-bottom: 10px;
-  }
-
-  .roomItem button {
-    margin-left: 5px;
-    background: #666;
-  }
-
-  .deleteBtn {
-    background: #d9534f !important;
-  }
-
-  /* ▒▒▒ 오른쪽 채팅 · 관리자 영역 ▒▒▒ */
-  #main {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-
-  #topBar {
-    height: 60px;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
-  }
-
-  #adminMenu {
-    display: none;
-  }
-
-  #adminMenu button {
-    background: #ff4b4b;
-  }
-
-  /* ▒▒▒ 채팅영역 ▒▒▒ */
-  #chat {
-    flex: 1;
-    display: none;
-    padding: 20px;
-    overflow: hidden;
-  }
-
-  #chatTitle {
-    font-size: 20px;
-    margin-bottom: 12px;
-    font-weight: bold;
-  }
-
-  #chatArea {
-    display: grid;
-    grid-template-columns: 1fr 260px;
-    gap: 12px;
-    height: calc(100% - 20px);
-  }
-
-  #messages {
-    height: calc(100% - 120px);
-    overflow-y: auto;
-    border: 1px solid #ccc;
-    padding: 12px;
-    background: #fff;
-    border-radius: 6px;
-  }
-
-  #messages div {
-    margin-bottom: 10px;
-  }
-
-  #roomUsers, #banList {
-    background: #fff;
-    padding: 10px;
-    border-radius: 6px;
-    border: 1px solid #ddd;
-    height: 200px;
-    overflow-y: auto;
-    margin-bottom: 12px;
-  }
-
-  #msgInput {
-    width: calc(100% - 80px);
-    padding: 8px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-  }
-
-  #sendBtn {
-    width: 70px;
-  }
-
-  .adminBtn { background:#e33; margin-left:6px; }
-
-</style>
+<script src="/socket.io/socket.io.js"></script>
 </head>
-
 <body>
+<div class="leftPanel">
+  <h2>닉네임</h2>
+  <input id="nickname" placeholder="닉네임">
+  <button id="saveNick">저장</button>
 
-<div id="layout">
+  <h2>방 목록</h2>
+  <input id="search"><button id="btnSearch">검색</button>
+  <ul id="roomList"></ul>
 
-  <!-- ▒▒▒ 왼쪽 사이드바 ▒▒▒ -->
-  <div id="sidebar">
-
-    <h2>닉네임</h2>
-    <input id="nickname" placeholder="닉네임 입력">
-    <button id="saveNick">저장</button>
-    <button id="changeNick">변경</button>
-
-    <hr>
-
-    <h2>방 검색</h2>
-    <input id="search" placeholder="검색어 입력">
-    <button id="btnSearch">검색</button>
-
-    <h2>방 목록</h2>
-    <div id="roomList"></div>
-
-    <hr>
-
-    <h2>방 만들기</h2>
-    <input id="newRoomName" placeholder="방 이름 입력">
-    <label><input type="checkbox" id="usePassword"> 비밀번호 방</label>
-    <input id="roomPassword" placeholder="비밀번호 입력(선택)">
-    <button id="createRoom">방 생성</button>
-
-  </div>
-
-  <!-- ▒▒▒ 오른쪽 메인 영역 ▒▒▒ -->
-  <div id="main">
-
-    <!-- 상단바 -->
-    <div id="topBar">
-      <div id="chatTitle">채팅 준비됨</div>
-      <div id="adminMenu">
-        <button id="adminLoginBtn">관리자 로그인</button>
-      </div>
-    </div>
-
-    <!-- 채팅창 -->
-    <div id="chat">
-      <div id="chatArea">
-
-        <!-- 메시지 -->
-        <div>
-          <div id="messages"></div>
-
-          <input id="msgInput" placeholder="메시지 입력">
-          <button id="sendBtn">전송</button>
-
-          <br><br>
-          <input type="file" id="fileInput">
-          <button id="uploadBtn">업로드</button>
-
-          <br><br>
-          <button id="leaveBtn" style="background:#999;">방 나가기</button>
-        </div>
-
-        <!-- 우측 정보 -->
-        <div>
-          <h3>접속자</h3>
-          <div id="roomUsers"></div>
-
-          <h3>밴 목록(관리자)</h3>
-          <div id="banList"></div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
+  <h2>방 만들기</h2>
+  <input id="newRoomName" placeholder="방 이름">
+  <label><input type="checkbox" id="usePassword"> 비번</label>
+  <input id="roomPassword" placeholder="비밀번호">
+  <button id="createRoom">생성</button>
 </div>
 
-<script src="script.js"></script>
+<div class="rightPanel">
+  <div id="adminPanel" class="adminPanel" style="display:none;">
+    <h3>관리자 패널</h3>
+    <div id="banList"></div>
+  </div>
 
+  <div id="chat" style="display:none;">
+    <h3 id="roomTitle"></h3>
+    <div id="messages" class="messages"></div>
+    <input id="msgInput" placeholder="메시지">
+    <button id="sendBtn">전송</button>
+  </div>
+</div>
+
+<script>
+const socket = io();
+const ADMIN_NAME = "크로바츠입니다";
+
+function getNick(){
+  let n = document.getElementById("nickname").value;
+  return n;
+}
+
+document.getElementById("saveNick").onclick = ()=>{
+  localStorage.setItem("nickname", getNick());
+  alert("저장됨");
+};
+
+socket.on("roomList",(rooms)=>{
+  const ul = document.getElementById("roomList");
+  ul.innerHTML = "";
+  rooms.forEach(r=>{
+    const li = document.createElement("li");
+    li.innerHTML = r.name + " <button onclick="joinR('" + r.id + "')">입장</button>";
+    ul.appendChild(li);
+  });
+});
+
+function joinR(id){
+  const nick = getNick();
+  const pw = prompt("비밀번호:");
+  socket.emit("joinRoom",{roomId:id,nickname:nick,password:pw});
+}
+
+socket.on("joinSuccess",(id)=>{
+  document.getElementById("chat").style.display = "block";
+  document.getElementById("roomTitle").textContent = "방: " + id;
+});
+
+socket.on("chatHistory",(list)=>{
+  const box = document.getElementById("messages");
+  box.innerHTML = "";
+  list.forEach(m=>{
+    const d = document.createElement("div");
+    d.textContent = m.nickname + ": " + m.message;
+    box.appendChild(d);
+  });
+});
+
+document.getElementById("sendBtn").onclick = ()=>{
+  const nick = getNick();
+  const msg = document.getElementById("msgInput").value;
+  const room = document.getElementById("roomTitle").textContent.replace("방: ","");
+  socket.emit("sendMessage",{roomId:room,nickname:nick,message:msg,type:"text"});
+  document.getElementById("msgInput").value="";
+};
+
+socket.on("newMessage",(m)=>{
+  const box = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.textContent = m.nickname + ": " + m.message;
+  box.appendChild(d);
+});
+
+socket.on("adminSuccess",()=>{
+  document.getElementById("adminPanel").style.display="block";
+});
+
+socket.on("banList",(list)=>{
+  document.getElementById("banList").innerHTML = list.join("<br>");
+});
+</script>
 </body>
 </html>
