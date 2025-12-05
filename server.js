@@ -1,6 +1,8 @@
 //-----------------------------------------------------------
 // Modern Chat Server (Full Feature)
 //-----------------------------------------------------------
+const helmet = require("helmet");
+app.use(helmet());
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
